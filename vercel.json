@@ -1,20 +1,12 @@
 {
-  "rewrites": [
+  "version": 2,
+  "routes": [
     {
-      "source": "/upload",
-      "destination": "/api/main"
+      "handle": "filesystem"
     },
     {
-      "source": "/ask",
-      "destination": "/api/main"
-    },
-    {
-      "source": "/documents",
-      "destination": "/api/main"
-    },
-    {
-      "source": "/documents/:path*",
-      "destination": "/api/main"
+      "src": "/(.*)",
+      "dest": "/api/main"
     }
   ]
 }

@@ -5,6 +5,7 @@ Pure Python: FastAPI + FAISS + sentence-transformers + OpenAI
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 import os, io, re, hashlib, json
 from dataclasses import dataclass, asdict
 from typing import List, Optional
@@ -24,15 +25,6 @@ from pinecone import Pinecone, ServerlessSpec
 
 # LLM
 from openai import OpenAI
-
-app = FastAPI(title="ScholarSync RAG API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Load local environment variables if testing locally
 load_dotenv()
@@ -139,14 +131,27 @@ def init_db():
     except Error as e:
         print(f"Error initializing MySQL: {e}")
 
-def load_state():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles application startup logic."""
     global pc
+    print("Application startup: Initializing database and clients...")
     init_db()
     if PINECONE_API_KEY and GOOGLE_API_KEY:
         pc = Pinecone(api_key=PINECONE_API_KEY)
+    print("Application startup complete.")
+    yield
+    # Code below yield runs on shutdown, not typically used in serverless
+    print("Application shutting down.")
 
-# Load everything from local storage at startup
-load_state()
+app = FastAPI(title="ScholarSync RAG API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ─── Document Parsing ───────────────────────────────────────
 def parse_pdf(file_bytes: bytes) -> dict:
