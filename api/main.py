@@ -345,7 +345,7 @@ QUESTION: {query}"""
     )
 
 # ─── API Endpoints ──────────────────────────────────────────
-@app.post("/upload")
+@app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Upload and process a document."""
     contents = await file.read()
@@ -401,7 +401,7 @@ async def upload_file(file: UploadFile = File(...)):
         "pages": [{"page_number": k, "text": v} for k, v in sorted(pages.items())]
     }
 
-@app.post("/ask")
+@app.post("/api/ask")
 async def ask_question(req: AskRequest):
     """Ask a question about an uploaded document."""
     chunks = retrieve_chunks(req.query, req.doc_id)
@@ -424,7 +424,7 @@ async def ask_question(req: AskRequest):
     
     return response
 
-@app.get("/documents/{doc_id}/chats")
+@app.get("/api/documents/{doc_id}/chats")
 async def get_chats(doc_id: str):
     """Get chat history for a document from the database."""
     chat_history = []
@@ -446,7 +446,7 @@ async def get_chats(doc_id: str):
         raise HTTPException(status_code=500, detail="Could not fetch chat history.")
     return chat_history
 
-@app.delete("/documents/{doc_id}/chats")
+@app.delete("/api/documents/{doc_id}/chats")
 async def clear_chat_history(doc_id: str):
     """Clear chat history for a document from memory and the database."""
     try:
@@ -461,7 +461,7 @@ async def clear_chat_history(doc_id: str):
         raise HTTPException(status_code=500, detail="Failed to clear chat history from database.")
     return {"status": "chat history cleared"}
 
-@app.get("/documents")
+@app.get("/api/documents")
 async def list_documents():
     """List all uploaded documents from the database."""
     docs = []
@@ -477,7 +477,7 @@ async def list_documents():
         raise HTTPException(status_code=500, detail="Could not fetch documents.")
     return docs
 
-@app.get("/documents/{doc_id}/pages")
+@app.get("/api/documents/{doc_id}/pages")
 async def get_document_pages(doc_id: str):
     """Get all pages of a document from the database."""
     pages = []
@@ -497,7 +497,7 @@ async def get_document_pages(doc_id: str):
         raise HTTPException(status_code=500, detail="Could not fetch document pages.")
     return {"pages": pages}
 
-@app.delete("/documents/{doc_id}")
+@app.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Delete a document."""
     if pc and doc_id in pc.list_indexes().names():

@@ -619,7 +619,7 @@
     <script>
         // ─── State ────────────────────────────────────────────
         // Automatically use localhost when testing locally, but relative paths on Vercel
-        const API_BASE = (window.location.hostname === 'localhost' || window.location.protocol === 'file:') ? 'http://localhost:8000' : '';
+        const API_BASE = (window.location.hostname === 'localhost' || window.location.protocol === 'file:') ? 'http://localhost:8000/api' : '/api';
         let currentDoc = null;
         let messages = [];
         let flashcards = [];
