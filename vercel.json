@@ -6,22 +6,13 @@
       "use": "@vercel/python"
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/upload",
-      "destination": "/api/main.py"
+      "handle": "filesystem"
     },
     {
-      "source": "/ask",
-      "destination": "/api/main.py"
-    },
-    {
-      "source": "/documents",
-      "destination": "/api/main.py"
-    },
-    {
-      "source": "/documents/:path*",
-      "destination": "/api/main.py"
+      "src": "/(.*)",
+      "dest": "/api/main.py"
     }
   ]
 }
