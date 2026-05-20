@@ -1,22 +1,20 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/main.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(upload|ask|documents.*)",
-      "dest": "/api/main.py"
+      "source": "/upload",
+      "destination": "/api/main"
     },
     {
-      "handle": "filesystem"
+      "source": "/ask",
+      "destination": "/api/main"
     },
     {
-      "src": "/.*",
-      "dest": "/index.html"
+      "source": "/documents",
+      "destination": "/api/main"
+    },
+    {
+      "source": "/documents/:path*",
+      "destination": "/api/main"
     }
   ]
 }
