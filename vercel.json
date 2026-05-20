@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/upload",
+      "destination": "/api/main.py"
+    },
+    {
+      "source": "/ask",
+      "destination": "/api/main.py"
+    },
+    {
+      "source": "/documents",
+      "destination": "/api/main.py"
+    },
+    {
+      "source": "/documents/:path*",
+      "destination": "/api/main.py"
+    }
+  ]
+}
