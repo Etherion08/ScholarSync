@@ -1,12 +1,11 @@
 fastapi
 uvicorn
 python-multipart
-sentence-transformers
 pdfplumber
 python-docx
 openai
-numpy
 pydantic
 mysql-connector-python
 pinecone
 python-dotenv
+google-genai

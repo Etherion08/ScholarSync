@@ -16,10 +16,11 @@ from docx import Document as DocxDocument  # DOCX parsing
 
 import mysql.connector
 from mysql.connector import Error
+from google import genai
+from google.genai import types
 from pinecone import Pinecone, ServerlessSpec
 
 # Embeddings & vector search
-from sentence_transformers import SentenceTransformer
 
 # LLM
 from openai import OpenAI
@@ -50,20 +51,22 @@ MYSQL_CONFIG = {
 # ─── Pinecone Configuration ─────────────────────────────────
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
+# ─── Google AI Configuration ────────────────────────────────
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+google_ai_client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
+
 # ─── Configuration ──────────────────────────────────────────
 CHUNK_SIZE = 500      # characters per chunk
 CHUNK_OVERLAP = 100   # overlap between chunks
 TOP_K = 5             # number of chunks to retrieve
-EMBED_MODEL = "all-MiniLM-L6-v2"  # 384-dim, fast, good quality
+EMBED_MODEL_NAME = "models/text-embedding-004"
+VECTOR_DIMENSION = 768 # Dimension for text-embedding-004
 
 # ─── AI Model Configuration ─────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 ai_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1") if GROQ_API_KEY else None
 
 # ─── Global State ───────────────────────────────────────────
-embedding_model = SentenceTransformer(EMBED_MODEL)
-vector_dimension = embedding_model.get_embedding_dimension()
-
 documents = {}  # doc_id -> DocumentData
 chats = {}      # doc_id -> list of chat message dictionaries
 pc = None       # Pinecone client instance
@@ -141,7 +144,7 @@ def init_db():
 def load_state():
     global documents, chats, pc
     init_db()
-    if PINECONE_API_KEY:
+    if PINECONE_API_KEY and GOOGLE_API_KEY:
         pc = Pinecone(api_key=PINECONE_API_KEY)
 
     try:
@@ -246,18 +249,33 @@ def chunk_text(pages: dict) -> List[TextChunk]:
 # ─── Vector Indexing ────────────────────────────────────────
 def index_chunks_in_pinecone(doc_id: str, chunks: List[TextChunk]):
     """Create a Pinecone index and upsert text chunks."""
-    if pc and doc_id not in pc.list_indexes().names():
-        pc.create_index(name=doc_id, dimension=vector_dimension, metric="cosine", spec=ServerlessSpec(cloud="aws", region="us-east-1"))
+    if not pc or not chunks:
+        return
+
+    if doc_id not in pc.list_indexes().names():
+        pc.create_index(name=doc_id, dimension=VECTOR_DIMENSION, metric="cosine", spec=ServerlessSpec(cloud="aws", region="us-east-1"))
     
     index = pc.Index(doc_id)
     
-    # Prepare vectors for upsert
+    # Batch embed all chunk texts using Google's API
+    chunk_texts = [c.text for c in chunks]
+    try:
+        result = google_ai_client.models.embed_content(
+            model=EMBED_MODEL_NAME,
+            contents=chunk_texts,
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+        )
+        embeddings = [e.values for e in result.embeddings]
+    except Exception as e:
+        print(f"Error generating embeddings: {e}")
+        return
+
+    # Prepare vectors for upsert to Pinecone
     vectors_to_upsert = []
     for i, chunk in enumerate(chunks):
-        embedding = embedding_model.encode(chunk.text).tolist()
         vectors_to_upsert.append({
             "id": f"chunk-{i}",
-            "values": embedding,
+            "values": embeddings[i],
             "metadata": {"text": chunk.text, "page": chunk.page}
         })
     
@@ -273,7 +291,12 @@ def retrieve_chunks(query: str, doc_id: str, top_k: int = TOP_K):
         return []
     
     index = pc.Index(doc_id)
-    query_embedding = embedding_model.encode(query).tolist()
+    result = google_ai_client.models.embed_content(
+        model=EMBED_MODEL_NAME,
+        contents=query,
+        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
+    )
+    query_embedding = result.embeddings[0].values
     
     query_results = index.query(vector=query_embedding, top_k=top_k, include_metadata=True)
     
