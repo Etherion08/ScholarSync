@@ -67,8 +67,6 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 ai_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1") if GROQ_API_KEY else None
 
 # ─── Global State ───────────────────────────────────────────
-documents = {}  # doc_id -> DocumentData
-chats = {}      # doc_id -> list of chat message dictionaries
 pc = None       # Pinecone client instance
 
 # ─── Data Models ────────────────────────────────────────────
@@ -142,34 +140,10 @@ def init_db():
         print(f"Error initializing MySQL: {e}")
 
 def load_state():
-    global documents, chats, pc
+    global pc
     init_db()
     if PINECONE_API_KEY and GOOGLE_API_KEY:
         pc = Pinecone(api_key=PINECONE_API_KEY)
-
-    try:
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        
-        # Load documents and pages from MySQL
-        cursor.execute("SELECT * FROM documents")
-        for d in cursor.fetchall():
-            doc_id = d["id"]
-            cursor.execute("SELECT page_number, text FROM document_pages WHERE doc_id = %s", (doc_id,))
-            pages = {row["page_number"]: row["text"] for row in cursor.fetchall()}
-            documents[doc_id] = DocumentData(id=doc_id, name=d["name"], type=d["type"], page_count=d["page_count"], word_count=d["word_count"], pages=pages)
-            
-        # Load chats from MySQL
-        cursor.execute("SELECT * FROM chats ORDER BY id ASC")
-        for c in cursor.fetchall():
-            doc_id = c["doc_id"]
-            if doc_id not in chats: chats[doc_id] = []
-            chats[doc_id].append({"role": c["role"], "content": c["content"], "citations": json.loads(c["citations"]) if c["citations"] else [], "highlighted_phrases": json.loads(c["highlighted_phrases"]) if c["highlighted_phrases"] else []})
-            
-        cursor.close()
-        conn.close()
-    except Error as e:
-        print(f"MySQL Load Error: {e}")
 
 # Load everything from local storage at startup
 load_state()
@@ -395,7 +369,6 @@ async def upload_file(file: UploadFile = File(...)):
         word_count=word_count,
         pages=pages
     )
-    documents[doc_id] = doc
     
     # Chunk and index
     chunks = chunk_text(pages)
@@ -433,18 +406,6 @@ async def ask_question(req: AskRequest):
     for c in response.citations:
         c["document_id"] = req.doc_id
         
-    # Save to chat history
-    if req.doc_id not in chats:
-        chats[req.doc_id] = []
-        
-    chats[req.doc_id].append({"role": "user", "content": req.query})
-    chats[req.doc_id].append({
-        "role": "assistant",
-        "content": response.answer,
-        "citations": response.citations,
-        "highlighted_phrases": response.highlighted_phrases
-    })
-    
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
@@ -460,15 +421,29 @@ async def ask_question(req: AskRequest):
 
 @app.get("/documents/{doc_id}/chats")
 async def get_chats(doc_id: str):
-    """Get chat history for a document."""
-    return chats.get(doc_id, [])
+    """Get chat history for a document from the database."""
+    chat_history = []
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT role, content, citations, highlighted_phrases FROM chats WHERE doc_id = %s ORDER BY id ASC", (doc_id,))
+        for row in cursor.fetchall():
+            chat_history.append({
+                "role": row["role"],
+                "content": row["content"],
+                "citations": json.loads(row["citations"]) if row["citations"] else [],
+                "highlighted_phrases": json.loads(row["highlighted_phrases"]) if row["highlighted_phrases"] else []
+            })
+        cursor.close()
+        conn.close()
+    except Error as e:
+        print(f"MySQL Get Chats Error: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch chat history.")
+    return chat_history
 
 @app.delete("/documents/{doc_id}/chats")
 async def clear_chat_history(doc_id: str):
     """Clear chat history for a document from memory and the database."""
-    if doc_id in chats:
-        chats[doc_id] = []
-
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
@@ -483,33 +458,43 @@ async def clear_chat_history(doc_id: str):
 
 @app.get("/documents")
 async def list_documents():
-    """List all uploaded documents."""
-    return [
-        {
-            "id": d.id,
-            "name": d.name,
-            "type": d.type,
-            "page_count": d.page_count,
-            "word_count": d.word_count,
-        }
-        for d in documents.values()
-    ]
+    """List all uploaded documents from the database."""
+    docs = []
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, name, type, page_count, word_count FROM documents")
+        docs = cursor.fetchall()
+        cursor.close()
+        conn.close()
+    except Error as e:
+        print(f"MySQL List Error: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch documents.")
+    return docs
 
 @app.get("/documents/{doc_id}/pages")
 async def get_document_pages(doc_id: str):
-    """Get all pages of a document."""
-    if doc_id not in documents:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return {"pages": [{"page_number": k, "text": v} for k, v in sorted(documents[doc_id].pages.items())]}
+    """Get all pages of a document from the database."""
+    pages = []
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT page_number, text FROM document_pages WHERE doc_id = %s ORDER BY page_number ASC", (doc_id,))
+        pages = cursor.fetchall()
+        if not pages: # Check if the document existed at all
+            cursor.execute("SELECT id FROM documents WHERE id = %s", (doc_id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Document not found")
+        cursor.close()
+        conn.close()
+    except Error as e:
+        print(f"MySQL Get Pages Error: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch document pages.")
+    return {"pages": pages}
 
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Delete a document."""
-    if doc_id in documents:
-        del documents[doc_id]
-    if doc_id in chats:
-        del chats[doc_id]
-        
     if pc and doc_id in pc.list_indexes().names():
         pc.delete_index(doc_id)
             

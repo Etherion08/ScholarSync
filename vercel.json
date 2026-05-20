@@ -8,11 +8,15 @@
   ],
   "routes": [
     {
+      "src": "/(upload|ask|documents.*)",
+      "dest": "/api/main.py"
+    },
+    {
       "handle": "filesystem"
     },
     {
-      "src": "/(.*)",
-      "dest": "/api/main.py"
+      "src": "/.*",
+      "dest": "/index.html"
     }
   ]
 }
